@@ -2,6 +2,8 @@ package org.example;
 
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.Parameters;
+import com.opencsv.CSVWriter;
+import com.opencsv.CSVWriterBuilder;
 import lombok.Getter;
 import lombok.Setter;
 import org.example.application.CalculateSimilarityUseCase;
@@ -18,13 +20,15 @@ import com.beust.jcommander.JCommander;
 import com.beust.jcommander.ParameterException;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class Main {
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
-    private static final boolean[] FIELD_WITH_SIMILARITY_CALCULATION = new boolean[]{
+    private static final boolean[] FIELD_WITH_SIMILARITY_CALCULATION = new boolean[] {
             false,      // contactID <-- It is not taken into account for similarity calculation
             true,       //name
             true,       // name1
@@ -65,11 +69,9 @@ public class Main {
             }
         }
 
-        SimilarityCalculator calculator = new SimilarityCalculator(new StringRanker(), weights, fields);
-
         CalculateSimilarityUseCase calculateUseCase = new CalculateSimilarityUseCase(
                 new SimilarityProcessor(
-                        calculator,
+                        new SimilarityCalculator(new StringRanker(), weights, fields),
                         new OpenCsvIterator(new File(appArgs.path).getAbsolutePath()),
                         new OpenCsvIterator(new File(appArgs.path).getAbsolutePath())
                 )
@@ -77,15 +79,31 @@ public class Main {
         List<ContactSimilarity> result = calculateUseCase.calculate();
 
 
-        log.info(String.format("============      Calculated similarity result(%s)        ============ ", result.size()));
-        log.info("ContactIDSource,ContactID Match,Accuracy");
-        log.info(result.stream().map(Main::mapResult).collect(Collectors.joining("," + System.lineSeparator())));
+        log.info("============      Calculated similarity result({})        ============ ", result.size());
+        List<String[]> lines = new ArrayList<>();
+        lines.add(new String[] {"ContactIDSource,ContactID Match,Accuracy"});
+        lines.addAll(result.stream().map(Main::mapResult).toList());
+        save(new File(appArgs.outputPath), lines);
     }
 
-    private static String mapResult(ContactSimilarity item) {
-        return String.format("%s,%s,%s", item.getContactIdSource(), item.getContactIdMatch(), item.getAccuracy());
+    private static String[] mapResult(ContactSimilarity item) {
+        return new String[]{String.format("%s,%s,%s",item.getContactIdSource(), item.getContactIdMatch(), item.getAccuracy().name())};
     }
 
+    private static void save(File csvFile, List<String[]> lines) {
+        if(!csvFile.exists()) {
+            try {
+                csvFile.createNewFile();
+            } catch (IOException e) {
+                throw new RuntimeException("Creating output csv file at " + csvFile.getAbsolutePath() + " failed", e);
+            }
+        }
+        try (CSVWriter writer = (CSVWriter) new CSVWriterBuilder(new FileWriter(csvFile.getAbsolutePath())).build()) {
+                writer.writeAll(lines);
+        } catch (IOException e) {
+            log.error("Error writing to CSV file: {}", e.getMessage());
+        }
+    }
 
     @Getter
     @Setter
@@ -107,8 +125,12 @@ public class Main {
 
         @Parameter(
                 names = {"-csv", "--cvsPath"},
-                description = "Path for the CVS to be processed"
+                description = "Path for the CVS to be processed",
+                required = true
         )
         public String path;
+
+        @Parameter(names = "--outputPath", description = "Path where the result is saved", required = true)
+        public String outputPath;
     }
 }

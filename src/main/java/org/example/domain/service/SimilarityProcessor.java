@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.*;
 
+import static java.util.concurrent.Executors.newFixedThreadPool;
+
 @AllArgsConstructor
 public class SimilarityProcessor {
     private static final Logger log = LoggerFactory.getLogger(SimilarityProcessor.class);
@@ -17,7 +19,7 @@ public class SimilarityProcessor {
 
 
     public List<ContactSimilarity> calculateSimilarity() {
-        ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+
         List<ContactSimilarity> result = new ArrayList<>();
         List<Callable<ContactSimilarity>> futures = new ArrayList<>();
         Map<String, Set<String>> alreadyProcessedRelationships = new HashMap<>();
@@ -41,22 +43,20 @@ public class SimilarityProcessor {
             }
             childrenProvider.reset();
         }
+        try (ExecutorService executorService = newFixedThreadPool(Runtime.getRuntime().availableProcessors())) {
+            try {
+                List<Future<ContactSimilarity>> executed = executorService.invokeAll(futures);
 
-        try {
-            List<Future<ContactSimilarity>> executed = executorService.invokeAll(futures);
-
-            for (Future<ContactSimilarity> future : executed) {
-                try {
-                    result.add(future.get());
-                } catch (ExecutionException e) {
-                    throw new RuntimeException("Error executing similarity calculation: " + e.getMessage(), e);
+                for (Future<ContactSimilarity> future : executed) {
+                    try {
+                        result.add(future.get());
+                    } catch (ExecutionException e) {
+                        throw new RuntimeException("Error executing similarity calculation: " + e.getMessage(), e);
+                    }
                 }
+            } catch (InterruptedException e) {
+                throw new RuntimeException("Error executing similarity calculation: " + e.getMessage(), e);
             }
-        } catch (InterruptedException e) {
-            throw new RuntimeException("Error executing similarity calculation: " + e.getMessage(), e);
-        }
-        finally {
-            executorService.shutdown();
         }
 
         return result;
